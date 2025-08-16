@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 
 export default function LandingPage() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-gray-50/60 relative">
+    <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white/90 to-gray-50/60 relative">
       {/* Background grid */}
       <div className="absolute inset-0 -z-10 h-full w-full bg-[linear-gradient(to_right,#e5e7eb_1px,transparent_1px),linear-gradient(to_bottom,#e5e7eb_1px,transparent_1px)] bg-[size:6rem_4rem] opacity-70" />
 
@@ -21,7 +21,7 @@ export default function LandingPage() {
 
         {/* CTA */}
         <Link href="/dashboard">
-          <button className="group inline-flex items-center px-8 py-4 text-lg font-semibold rounded-2xl text-white bg-gradient-to-r from-gray-900 to-gray-800 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+          <button className="group inline-flex cursor-pointer items-center px-8 py-4 text-lg font-semibold rounded-2xl text-white bg-gradient-to-r from-gray-900 to-gray-800 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
             Get Started
             <ArrowRight className="ml-3 h-5 w-5 transition-transform group-hover:translate-x-1" />
           </button>
