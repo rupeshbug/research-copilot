@@ -9,33 +9,46 @@ import {
 } from "@langchain/langgraph";
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
 
-export type State = {
+// Define the state channels for the agent
+interface AgentState {
   query: string;
   papers: OpenAlexPaper[];
   rankingCriteria: string;
   rankedPapers: OpenAlexPaper[];
   gaps: string;
   messages: BaseMessage[];
-};
+}
+
+export const agentGraph = new StateGraph<AgentState>({
+  channels: {
+    query: null,
+    papers: null,
+    rankingCriteria: null,
+    rankedPapers: null,
+    gaps: null,
+    messages: {
+      reducer: (currentState, updateValue) => currentState.concat(updateValue),
+      default: () => [],
+    },
+  },
+});
 
 // Node 1: Load papers
-async function loadPapers(state: State) {
+async function loadPapers(state: AgentState) {
   const query = state["query"];
   const papers = await openAlexSearch(query, 2);
-  state.papers = papers;
   console.log(
     "Loaded papers:",
     papers.map((p) => p.title)
   );
-  return state;
+  return { papers: papers };
 }
 
 // Node 2: Rank papers
-async function rankPapers(state: State) {
+async function rankPapers(state: AgentState) {
   if (!state.papers || state.papers.length === 0) {
     console.log("No papers to rank.");
-    state.rankedPapers = [];
-    return state;
+    return { rankedPapers: [] };
   }
 
   let criteria = state.rankingCriteria;
@@ -84,11 +97,11 @@ async function rankPapers(state: State) {
     "Top 3 ranked papers:",
     ranked.map((p) => p.title)
   );
-  return state;
+  return { rankedPapers: ranked };
 }
 
 // Node 3: Gap analysis
-async function gapAnalysis(state: State) {
+async function gapAnalysis(state: AgentState) {
   console.log("---PERFORMING GAP ANALYSIS---");
 
   // Prepare paper summaries text for prompt
@@ -114,16 +127,11 @@ async function gapAnalysis(state: State) {
 
   // Type-safe access
   const gaps = (response.content as string) || "No gaps identified";
-  state.gaps = gaps;
-
-  console.log("Identified gaps:\n", gaps);
-  return state;
+  return { gaps: gaps };
 }
 
 // Node 4: Conversational Node
-async function conversationalNode(state: State) {
-  console.log("---Conversation---");
-
+async function conversationalNode(state: AgentState) {
   const papersText = state.rankedPapers
     .map(
       (p, i) => `Paper ${i + 1}:\nTitle: ${p.title}\nSummary: ${p.abstract}\n`
@@ -155,7 +163,20 @@ async function conversationalNode(state: State) {
 
   const reply = (response.content as string) || "No response from model";
 
-  state.messages = [...pastMessages, new AIMessage(reply)];
+  return {
+    messages: [...state.messages, new AIMessage({ content: reply })],
+  };
+}
 
-  return state;
+// Define a function to decide the next step
+function shouldContinue(state: AgentState): "continue" | "__end__" {
+  const lastMessage = state.messages[state.messages.length - 1];
+
+  if (typeof lastMessage.content === "string") {
+    if (lastMessage.content.toLowerCase().includes("no")) {
+      return "__end__";
+    }
+  }
+
+  return "continue";
 }
