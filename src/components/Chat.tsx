@@ -17,7 +17,7 @@ export default function Chat() {
         <input
           type="text"
           placeholder="Ask about research papers..."
-          className="flex-1 rounded-xl border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-gray-400"
+          className="flex-1 rounded-xl text-gray-700 border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-gray-400"
         />
         <button className="px-4 py-2 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition">
           Send
