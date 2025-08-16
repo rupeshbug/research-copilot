@@ -1,7 +1,10 @@
-import { llm } from "@/lib/utils";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { workflow } from "@/lib/agent";
 
-export async function GET() {
-  const response = await llm.invoke("Define AI in a single sentence.");
-  return NextResponse.json({ content: response.content });
+export async function POST(req: NextRequest) {
+  const { query } = await req.json();
+
+  const result = await workflow.invoke({ query: query });
+
+  return NextResponse.json(result);
 }

@@ -27,7 +27,7 @@ export type AgentState = typeof AgentStateAnnotation.State;
 // Node 1: Load papers
 async function loadPapers(state: AgentState) {
   const query = state["query"];
-  const papers = await openAlexSearch(query, 2);
+  const papers = await openAlexSearch(query, 3);
   console.log(
     "Loaded papers:",
     papers.map((p) => p.title)
