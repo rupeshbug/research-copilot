@@ -17,7 +17,7 @@ export type OpenAlexPaper = {
 
 export async function openAlexSearch(
   query: string,
-  maxResults: number = 2
+  maxResults: number
 ): Promise<OpenAlexPaper[]> {
   const url = "https://api.openalex.org/works";
   const params = new URLSearchParams({
