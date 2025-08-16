@@ -6,32 +6,23 @@ import {
   START,
   END,
   addMessages,
+  Annotation,
 } from "@langchain/langgraph";
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
 
-// Define the state channels for the agent
-interface AgentState {
-  query: string;
-  papers: OpenAlexPaper[];
-  rankingCriteria: string;
-  rankedPapers: OpenAlexPaper[];
-  gaps: string;
-  messages: BaseMessage[];
-}
-
-export const agentGraph = new StateGraph<AgentState>({
-  channels: {
-    query: null,
-    papers: null,
-    rankingCriteria: null,
-    rankedPapers: null,
-    gaps: null,
-    messages: {
-      reducer: (currentState, updateValue) => currentState.concat(updateValue),
-      default: () => [],
-    },
-  },
+const AgentStateAnnotation = Annotation.Root({
+  query: Annotation<string>(),
+  papers: Annotation<OpenAlexPaper[]>(),
+  rankingCriteria: Annotation<string>(),
+  rankedPapers: Annotation<OpenAlexPaper[]>(),
+  gaps: Annotation<string>(),
+  messages: Annotation<BaseMessage[]>({
+    reducer: (currentState, updateValue) => currentState.concat(updateValue),
+    default: () => [],
+  }),
 });
+
+export type AgentState = typeof AgentStateAnnotation.State;
 
 // Node 1: Load papers
 async function loadPapers(state: AgentState) {
@@ -168,15 +159,15 @@ async function conversationalNode(state: AgentState) {
   };
 }
 
-// Define a function to decide the next step
-function shouldContinue(state: AgentState): "continue" | "__end__" {
-  const lastMessage = state.messages[state.messages.length - 1];
+const graph = new StateGraph(AgentStateAnnotation)
+  .addNode("loadPapers", loadPapers)
+  .addNode("rankPapers", rankPapers)
+  .addNode("gapAnalysis", gapAnalysis)
+  .addNode("conversationalNode", conversationalNode)
+  .addEdge(START, "loadPapers")
+  .addEdge("loadPapers", "rankPapers")
+  .addEdge("rankPapers", "gapAnalysis")
+  .addEdge("gapAnalysis", "conversationalNode")
+  .addEdge("conversationalNode", END);
 
-  if (typeof lastMessage.content === "string") {
-    if (lastMessage.content.toLowerCase().includes("no")) {
-      return "__end__";
-    }
-  }
-
-  return "continue";
-}
+export const workflow = graph.compile();
