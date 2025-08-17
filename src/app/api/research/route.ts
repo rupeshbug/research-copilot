@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAgent } from "../../../lib/agentRunner";
+import { HumanMessage } from "@langchain/core/messages";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     console.log(body);
-    const query = body.query;
-    const rankingCriteria = body.rankingCriteria;
-    const threadId = body.threadId || "session_1";
+    const { query, rankingCriteria, threadId = "session_1" } = body;
 
     if (!query || typeof query !== "string") {
       return NextResponse.json(
@@ -16,8 +15,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Call runAgent with all parameters
-    const result = await runAgent({ query, rankingCriteria, threadId });
+    // Wrap user input as a HumanMessage
+    const initialMessage = new HumanMessage(query);
+
+    // Call runAgent with proper parameters
+    const result = await runAgent({
+      messages: [initialMessage],
+      rankingCriteria,
+      threadId,
+    });
 
     return NextResponse.json({ result });
   } catch (err) {

@@ -1,48 +1,81 @@
 import { workflow } from "./agent";
-import { MemorySaver, Command } from "@langchain/langgraph";
-import { HumanMessage } from "@langchain/core/messages";
+import { MemorySaver } from "@langchain/langgraph";
+import { BaseMessage, HumanMessage } from "@langchain/core/messages";
+import { Command } from "@langchain/langgraph";
 
-// Create an in-memory checkpointer
-const checkpointer = new MemorySaver();
-
-/**
- * Run the agent workflow with provided parameters
- * @param query User query string
- * @param rankingCriteria Optional ranking criteria for papers
- * @param threadId Unique session/thread ID
- * @returns Final workflow result
- */
-export async function runAgent({
-  query,
-  rankingCriteria,
-  threadId,
-}: {
-  query: string;
+interface RunAgentProps {
+  messages?: BaseMessage[];
   rankingCriteria?: string;
   threadId: string;
-}) {
-  if (!query || typeof query !== "string") {
-    throw new Error("Query is required.");
+}
+
+export async function runAgent({
+  messages,
+  rankingCriteria,
+  threadId,
+}: RunAgentProps) {
+  console.log("Starting agent with threadId:", threadId);
+
+  // In-memory checkpointer
+  const checkpointer = new MemorySaver();
+
+  // If no messages are provided, start with greeting
+  if (!messages || messages.length === 0) {
+    messages = [
+      new HumanMessage({
+        content: "Hello! How can I help you today?",
+      }),
+    ];
   }
 
-  // Initial messages must have at least one item
-  const initialInput = {
-    query,
-    messages: [new HumanMessage(query)],
-  };
+  // Extract query text safely (LLM requires string)
+  const firstMessage = messages[0];
+  let queryText: string;
+  if ("content" in firstMessage) {
+    if (typeof firstMessage.content === "string") {
+      queryText = firstMessage.content;
+    } else if (Array.isArray(firstMessage.content)) {
+      queryText = firstMessage.content
+        .map((c) => (typeof c === "string" ? c : ""))
+        .join(" ");
+    } else {
+      queryText = "";
+    }
+  } else {
+    queryText = "";
+  }
 
+  // Thread configuration
   const threadConfig = { configurable: { thread_id: threadId }, checkpointer };
 
-  // Step 1: Run workflow until first interrupt (askRankingCriteria)
-  await workflow.invoke(initialInput, threadConfig);
+  // Initial input for workflow
+  const initialInput = {
+    query: queryText,
+    messages,
+  };
 
-  // Step 2: Resume workflow with human input
-  const humanInput = rankingCriteria || "Citations";
+  try {
+    // Step 1: Run workflow until the first interrupt (askRankingCriteria)
+    await workflow.invoke(initialInput, threadConfig);
 
-  const result = await workflow.invoke(
-    new Command({ resume: humanInput }),
-    threadConfig
-  );
+    console.log("\n---WAITING FOR HUMAN INPUT---\n");
 
-  return result;
+    // Step 2: Use ranking criteria (from UI or default to "Citations")
+    const humanInput = rankingCriteria || "Citations";
+
+    console.log(`Resuming workflow with human input: ${humanInput}\n`);
+
+    const finalResult = await workflow.invoke(
+      new Command({ resume: humanInput }),
+      threadConfig
+    );
+
+    console.log("Workflow completed. Final state/results:");
+    console.log(finalResult);
+
+    return finalResult;
+  } catch (err) {
+    console.error("Error in runAgent:", err);
+    throw err;
+  }
 }
