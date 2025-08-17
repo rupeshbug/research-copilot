@@ -1,4 +1,6 @@
 import { ChatGroq } from "@langchain/groq";
+import { tool } from "@langchain/core/tools";
+import { z } from "zod";
 
 export const llm = new ChatGroq({
   model: "llama-3.3-70b-versatile",
@@ -12,6 +14,15 @@ export type OpenAlexPaper = {
   published_date?: string;
   abstract: string;
   cited_by_count: number;
+  relevance_score?: number;
+};
+
+type OpenAlexAPIResult = {
+  title: string;
+  authorships?: { author: { display_name: string } }[];
+  publication_date?: string;
+  abstract_inverted_index?: Record<string, number[]>;
+  cited_by_count?: number;
   relevance_score?: number;
 };
 
@@ -31,7 +42,7 @@ export async function openAlexSearch(
     if (!res.ok) throw new Error(`OpenAlex request failed: ${res.statusText}`);
     const data = await res.json();
 
-    return data.results.map((result: any) => {
+    return data.results.map((result: OpenAlexAPIResult) => {
       // Reconstruct abstract from abstract_inverted_index if available
       const abstractInverted = result.abstract_inverted_index ?? {};
       const abstract = Object.entries(abstractInverted)
@@ -58,3 +69,20 @@ export async function openAlexSearch(
     return [];
   }
 }
+
+const OpenAlexToolSchema = z.object({
+  query: z.string().describe("Research query or topic."),
+});
+
+export const OpenAlexTool = tool(
+  async (input: unknown) => {
+    const { query } = OpenAlexToolSchema.parse(input);
+    const papers: OpenAlexPaper[] = await openAlexSearch(query, 5);
+    return papers;
+  },
+  {
+    name: "openalex_search",
+    description: "Retrieve research papers from OpenAlex.",
+    schema: OpenAlexToolSchema,
+  }
+);
