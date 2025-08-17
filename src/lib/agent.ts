@@ -20,70 +20,52 @@ const AgentStateAnnotation = Annotation.Root({
 export type AgentState = typeof AgentStateAnnotation.State;
 
 // Tools
-
 const tools = [OpenAlexTool];
 const toolNode = new ToolNode(tools);
 
 const llmWithTool = llm.bindTools(tools);
 
-// Define the function that determines whether to continue or not
-function shouldContinue(state: AgentState) {
-  const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
-
-  if (lastMessage.tool_calls?.length) {
-    return "tools";
-  }
-  return "conversationalNode";
-}
-
 // Node: Call Nodel
-
 async function callModel(state: AgentState) {
-  console.log(
-    "Calling LLM with tool access, current messages:",
-    state.messages
-  );
+  console.log("Call Model NOde");
   const response = await llmWithTool.invoke(state.messages);
-  console.log("LLM response:", response);
+  console.log("LLM response from callModel node:", response);
   return { messages: [response] };
 }
 
 // Node: Load papers
 async function loadPapers(state: AgentState) {
-  const query = state["query"];
-  const papers = await openAlexSearch(query, 3);
+  const lastToolCall = state.messages[state.messages.length - 1] as AIMessage;
+  const query = lastToolCall.tool_calls?.[0]?.args?.query as string;
+  console.log("query from load papers node: ", query);
+
+  if (!query) return {};
+
+  console.log("---LOAD PAPERS NODE--- Query:", query);
+  const papers = await OpenAlexTool.invoke({ query });
   console.log(
     "Loaded papers:",
     papers.map((p) => p.title)
   );
-  return { papers: papers };
+
+  return { papers, query };
 }
 
 // Node: Rank papers
 async function rankPapers(state: AgentState) {
   if (!state.papers || state.papers.length === 0) {
     console.log("No papers to rank.");
-    return { rankedPapers: [] };
+    return { rankedPapers: [], rankingCriteria: "citations" };
   }
 
-  let criteria = state.rankingCriteria;
-  if (!criteria) {
-    const titles = state.papers.map((p) => p.title).join("\n");
-    const prompt = `
-      You are a research assistant. Given the following papers:
-
-      ${titles}
-
-      Decide how to rank the top 3 papers based on relevance to the query.
-      Options: "relevance" (semantic similarity), "citations" (impact), "recency" (publication date).
-      If the input is unclear, default to citations.
-      Respond with just one word: relevance, citations, or recency.
-      `;
-
-    const response = await llm.invoke(prompt);
-    criteria =
-      (response.content as string)?.trim().toLowerCase() || "citations";
-    console.log("Ranking criteria decided by model:", criteria);
+  // Determine ranking criteria from user input or default
+  const validCriteria = ["relevance", "recency", "citations"];
+  let criteria = state.rankingCriteria?.trim().toLowerCase();
+  if (!criteria || !validCriteria.includes(criteria)) {
+    console.log(
+      "User did not provide valid ranking criteria. Defaulting to 'citations'."
+    );
+    criteria = "citations";
   }
 
   // Sort papers based on the chosen criteria
@@ -101,18 +83,19 @@ async function rankPapers(state: AgentState) {
       )
       .slice(0, 3);
   } else {
-    // Default: citations
+    // Default or citations
     ranked = state.papers
       .sort((a, b) => (b.cited_by_count ?? 0) - (a.cited_by_count ?? 0))
       .slice(0, 3);
   }
 
-  state.rankedPapers = ranked;
+  console.log("Ranking criteria:", criteria);
   console.log(
     "Top 3 ranked papers:",
     ranked.map((p) => p.title)
   );
-  return { rankedPapers: ranked };
+
+  return { rankedPapers: ranked, rankingCriteria: criteria };
 }
 
 // Node: Gap analysis
@@ -147,6 +130,7 @@ async function gapAnalysis(state: AgentState) {
 
 // Node: Conversational Node
 async function conversationalNode(state: AgentState) {
+  console.log("Conversational Node");
   const papersText = state.rankedPapers
     .map(
       (p, i) => `Paper ${i + 1}:\nTitle: ${p.title}\nSummary: ${p.abstract}\n`
@@ -165,8 +149,7 @@ async function conversationalNode(state: AgentState) {
     Identified gaps in each paper:
     ${gapsText}
 
-    Provide a helpful response to the user, guiding them or answering questions based on this context. 
-    You may ask follow-up questions or suggest refinements naturally as part of the conversation.
+    Provide a helpful response to the user.
   `;
 
   const pastMessages = state.messages;
@@ -177,6 +160,7 @@ async function conversationalNode(state: AgentState) {
   ]);
 
   const reply = (response.content as string) || "No response from model";
+  console.log("Agent Reply conversational node", reply);
 
   return {
     messages: [...state.messages, new AIMessage({ content: reply })],
@@ -184,11 +168,22 @@ async function conversationalNode(state: AgentState) {
 }
 
 const graph = new StateGraph(AgentStateAnnotation)
+  // Nodes
+  .addNode("callModel", callModel)
+  .addNode("tools", toolNode)
   .addNode("loadPapers", loadPapers)
   .addNode("rankPapers", rankPapers)
   .addNode("gapAnalysis", gapAnalysis)
   .addNode("conversationalNode", conversationalNode)
-  .addEdge(START, "loadPapers")
+  // Start
+  .addEdge(START, "callModel")
+  // Conditional edge from model: decide tool or conversation
+  .addConditionalEdges("callModel", (state) => {
+    const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
+    if (lastMessage.tool_calls?.length) return "tools";
+    return "conversationalNode";
+  })
+  .addEdge("tools", "loadPapers")
   .addEdge("loadPapers", "rankPapers")
   .addEdge("rankPapers", "gapAnalysis")
   .addEdge("gapAnalysis", "conversationalNode")
