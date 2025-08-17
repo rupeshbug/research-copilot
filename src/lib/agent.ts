@@ -4,6 +4,7 @@ import { StateGraph, START, END, Annotation } from "@langchain/langgraph";
 import { AIMessage } from "@langchain/core/messages";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { SystemMessage } from "@langchain/core/messages";
+import { interrupt, MemorySaver } from "@langchain/langgraph";
 
 // Agent State
 const AgentStateAnnotation = Annotation.Root({
@@ -43,7 +44,7 @@ async function loadPapers(state: AgentState) {
 
   if (!lastToolMessage) {
     console.log("No tool message found in state. Skipping loadPapers node.");
-    return {};
+    return { papers: [] };
   }
 
   // The content of the ToolMessage is the output of the tool, which should be the array of papers
@@ -62,51 +63,55 @@ async function loadPapers(state: AgentState) {
   return { papers };
 }
 
+// Node: Human-in-the-Loop Node for asking criteria
+
+async function askRankingCriteria(state: AgentState) {
+  console.log("---INTERRUPT: ASK RANKING CRITERIA---");
+
+  const rankingCriteria = interrupt({
+    text_to_revise: `We found the following papers:\n${state.papers
+      .map((p) => p.title)
+      .join(
+        "\n"
+      )}\n\nWhich ranking criteria would you like to use? Options: Citations, Recency, Relevance`,
+  });
+
+  return { rankingCriteria };
+}
+
 // Node: Rank papers
 async function rankPapers(state: AgentState) {
-  if (!state.papers || state.papers.length === 0) {
-    console.log("No papers to rank.");
-    return { rankedPapers: [], rankingCriteria: "citations" };
-  }
-
-  // Determine ranking criteria from user input or default
-  const validCriteria = ["relevance", "recency", "citations"];
   let criteria = state.rankingCriteria?.trim().toLowerCase();
+  const validCriteria = ["citations", "recency", "relevance"];
+
   if (!criteria || !validCriteria.includes(criteria)) {
-    console.log(
-      "User did not provide valid ranking criteria. Defaulting to 'citations'."
-    );
+    console.log("Invalid or no input from user. Defaulting to 'citations'.");
     criteria = "citations";
   }
 
-  // Sort papers based on the chosen criteria
-  let ranked: OpenAlexPaper[] = [];
-  if (criteria === "relevance") {
-    ranked = state.papers
-      .sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0))
-      .slice(0, 3);
-  } else if (criteria === "recency") {
-    ranked = state.papers
-      .sort(
-        (a, b) =>
-          new Date(b.published_date ?? 0).getTime() -
-          new Date(a.published_date ?? 0).getTime()
-      )
-      .slice(0, 3);
-  } else {
-    // Default or citations
-    ranked = state.papers
-      .sort((a, b) => (b.cited_by_count ?? 0) - (a.cited_by_count ?? 0))
-      .slice(0, 3);
-  }
+  console.log(`Ranking criteria: ${criteria}`);
 
-  console.log("Ranking criteria:", criteria);
+  const rankedPapers = [...state.papers].sort((a, b) => {
+    if (criteria === "citations") {
+      return (b.cited_by_count ?? 0) - (a.cited_by_count ?? 0);
+    }
+    if (criteria === "recency") {
+      const dateA = a.published_date ? new Date(a.published_date).getTime() : 0;
+      const dateB = b.published_date ? new Date(b.published_date).getTime() : 0;
+      return dateB - dateA;
+    }
+    if (criteria === "relevance") {
+      return (b.relevance_score ?? 0) - (a.relevance_score ?? 0);
+    }
+    return 0;
+  });
+
   console.log(
     "Top 3 ranked papers:",
-    ranked.map((p) => p.title)
+    rankedPapers.slice(0, 3).map((p) => p.title)
   );
 
-  return { rankedPapers: ranked, rankingCriteria: criteria };
+  return { rankedPapers };
 }
 
 // Node: Gap analysis
@@ -139,7 +144,6 @@ async function gapAnalysis(state: AgentState) {
 
   const response = await llm.invoke(prompt);
 
-  // Type-safe access
   const gaps = (response.content as string) || "No gaps identified";
   return { gaps: gaps };
 }
@@ -148,11 +152,15 @@ async function gapAnalysis(state: AgentState) {
 async function conversationalNode(state: AgentState) {
   console.log("Conversational Node");
 
-  const papersText = state.rankedPapers
-    .map(
-      (p, i) => `Paper ${i + 1}:\nTitle: ${p.title}\nSummary: ${p.abstract}\n`
-    )
-    .join("\n");
+  const papersText =
+    state.rankedPapers?.length > 0
+      ? state.rankedPapers
+          .map(
+            (p, i) =>
+              `Paper ${i + 1}:\nTitle: ${p.title}\nSummary: ${p.abstract}\n`
+          )
+          .join("\n")
+      : "No papers available.";
 
   const gapsText = state.gaps || "No gaps identified yet.";
 
@@ -167,15 +175,15 @@ async function conversationalNode(state: AgentState) {
     `;
 
   // Only add the research context if papers were found and ranked
-  if (state.rankedPapers && state.rankedPapers.length > 0) {
+  if (state.rankedPapers?.length > 0) {
     systemTemplate += `
-            Top-ranked papers with summaries:
-            ${papersText}
+          Top-ranked papers with summaries:
+          ${papersText}
 
-            Identified gaps in each paper:
-            ${gapsText}
+          Identified gaps in each paper:
+          ${gapsText}
 
-            - Use the provided context to support your answers.
+          - Use the provided context to support your answers.
         `;
   }
 
@@ -199,6 +207,7 @@ const graph = new StateGraph(AgentStateAnnotation)
   .addNode("callModel", callModel)
   .addNode("tools", toolNode)
   .addNode("loadPapers", loadPapers)
+  .addNode("askRankingCriteria", askRankingCriteria)
   .addNode("rankPapers", rankPapers)
   .addNode("gapAnalysis", gapAnalysis)
   .addNode("conversationalNode", conversationalNode)
@@ -211,9 +220,12 @@ const graph = new StateGraph(AgentStateAnnotation)
     return "conversationalNode";
   })
   .addEdge("tools", "loadPapers")
-  .addEdge("loadPapers", "rankPapers")
+  .addEdge("loadPapers", "askRankingCriteria")
+  .addEdge("askRankingCriteria", "rankPapers")
   .addEdge("rankPapers", "gapAnalysis")
   .addEdge("gapAnalysis", "conversationalNode")
   .addEdge("conversationalNode", END);
 
-export const workflow = graph.compile();
+const checkpointer = new MemorySaver();
+
+export const workflow = graph.compile({ checkpointer });

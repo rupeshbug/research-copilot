@@ -1,35 +1,30 @@
-import { NextResponse } from "next/server";
-import { workflow, AgentState } from "@/lib/agent";
-import { HumanMessage } from "@langchain/core/messages";
+import { NextRequest, NextResponse } from "next/server";
+import { runAgent } from "../../../lib/agentRunner";
 
-export async function POST(req: Request) {
-  const body = await req.json();
-  const userMessage = body.message;
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    console.log(body);
+    const query = body.query;
+    const rankingCriteria = body.rankingCriteria;
+    const threadId = body.threadId || "session_1";
 
-  if (!userMessage) {
-    return NextResponse.json({ error: "No message provided" }, { status: 400 });
+    if (!query || typeof query !== "string") {
+      return NextResponse.json(
+        { error: "Query is required." },
+        { status: 400 }
+      );
+    }
+
+    // Call runAgent with all parameters
+    const result = await runAgent({ query, rankingCriteria, threadId });
+
+    return NextResponse.json({ result });
+  } catch (err) {
+    console.error("Error in /api/research:", err);
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    );
   }
-
-  console.log("Incoming user message from API:", userMessage);
-
-  // Initialize state properly
-  const state: AgentState = {
-    query: userMessage,
-    papers: [],
-    rankingCriteria: "",
-    rankedPapers: [],
-    gaps: "",
-    messages: [new HumanMessage({ content: userMessage })],
-  };
-
-  // Run the workflow
-  const result = await workflow.invoke(state);
-
-  return NextResponse.json({
-    messages: result.messages.map((m) => m.content),
-    papers: result.papers,
-    rankedPapers: result.rankedPapers,
-    gaps: result.gaps,
-    rankingCriteria: result.rankingCriteria,
-  });
 }
