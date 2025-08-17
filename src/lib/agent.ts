@@ -1,8 +1,10 @@
 import { BaseMessage } from "@langchain/core/messages";
-import { openAlexSearch, OpenAlexPaper, llm } from "./utils";
+import { OpenAlexPaper, llm, OpenAlexTool } from "./utils";
 import { StateGraph, START, END, Annotation } from "@langchain/langgraph";
 import { AIMessage } from "@langchain/core/messages";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
 
+// Agent State
 const AgentStateAnnotation = Annotation.Root({
   query: Annotation<string>(),
   papers: Annotation<OpenAlexPaper[]>(),
@@ -17,7 +19,36 @@ const AgentStateAnnotation = Annotation.Root({
 
 export type AgentState = typeof AgentStateAnnotation.State;
 
-// Node 1: Load papers
+// Tools
+
+const tools = [OpenAlexTool];
+const toolNode = new ToolNode(tools);
+
+const llmWithTool = llm.bindTools(tools);
+
+// Define the function that determines whether to continue or not
+function shouldContinue(state: AgentState) {
+  const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
+
+  if (lastMessage.tool_calls?.length) {
+    return "tools";
+  }
+  return "conversationalNode";
+}
+
+// Node: Call Nodel
+
+async function callModel(state: AgentState) {
+  console.log(
+    "Calling LLM with tool access, current messages:",
+    state.messages
+  );
+  const response = await llmWithTool.invoke(state.messages);
+  console.log("LLM response:", response);
+  return { messages: [response] };
+}
+
+// Node: Load papers
 async function loadPapers(state: AgentState) {
   const query = state["query"];
   const papers = await openAlexSearch(query, 3);
@@ -28,7 +59,7 @@ async function loadPapers(state: AgentState) {
   return { papers: papers };
 }
 
-// Node 2: Rank papers
+// Node: Rank papers
 async function rankPapers(state: AgentState) {
   if (!state.papers || state.papers.length === 0) {
     console.log("No papers to rank.");
@@ -84,7 +115,7 @@ async function rankPapers(state: AgentState) {
   return { rankedPapers: ranked };
 }
 
-// Node 3: Gap analysis
+// Node: Gap analysis
 async function gapAnalysis(state: AgentState) {
   console.log("---PERFORMING GAP ANALYSIS---");
 
@@ -114,7 +145,7 @@ async function gapAnalysis(state: AgentState) {
   return { gaps: gaps };
 }
 
-// Node 4: Conversational Node
+// Node: Conversational Node
 async function conversationalNode(state: AgentState) {
   const papersText = state.rankedPapers
     .map(
