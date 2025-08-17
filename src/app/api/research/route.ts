@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { workflow, AgentState } from "@/lib/agent";
-import { AIMessage } from "@langchain/core/messages";
+import { HumanMessage } from "@langchain/core/messages";
 
 export async function POST(req: Request) {
   const body = await req.json();
   const userMessage = body.message;
+
+  if (!userMessage) {
+    return NextResponse.json({ error: "No message provided" }, { status: 400 });
+  }
+
+  console.log("Incoming user message from API:", userMessage);
 
   // Initialize state properly
   const state: AgentState = {
@@ -13,7 +19,7 @@ export async function POST(req: Request) {
     rankingCriteria: "",
     rankedPapers: [],
     gaps: "",
-    messages: [new AIMessage({ content: userMessage })],
+    messages: [new HumanMessage({ content: userMessage })],
   };
 
   // Run the workflow

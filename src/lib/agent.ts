@@ -3,6 +3,7 @@ import { OpenAlexPaper, llm, OpenAlexTool } from "./utils";
 import { StateGraph, START, END, Annotation } from "@langchain/langgraph";
 import { AIMessage } from "@langchain/core/messages";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { SystemMessage } from "@langchain/core/messages";
 
 // Agent State
 const AgentStateAnnotation = Annotation.Root({
@@ -27,7 +28,7 @@ const llmWithTool = llm.bindTools(tools);
 
 // Node: Call Nodel
 async function callModel(state: AgentState) {
-  console.log("Call Model NOde");
+  console.log("Call Model Node");
   const response = await llmWithTool.invoke(state.messages);
   console.log("LLM response from callModel node:", response);
   return { messages: [response] };
@@ -35,20 +36,30 @@ async function callModel(state: AgentState) {
 
 // Node: Load papers
 async function loadPapers(state: AgentState) {
-  const lastToolCall = state.messages[state.messages.length - 1] as AIMessage;
-  const query = lastToolCall.tool_calls?.[0]?.args?.query as string;
-  console.log("query from load papers node: ", query);
+  // Find the last tool message in the message history
+  const lastToolMessage = [...state.messages]
+    .reverse()
+    .find((m) => m.getType() === "tool");
 
-  if (!query) return {};
+  if (!lastToolMessage) {
+    console.log("No tool message found in state. Skipping loadPapers node.");
+    return {};
+  }
 
-  console.log("---LOAD PAPERS NODE--- Query:", query);
-  const papers = await OpenAlexTool.invoke({ query });
+  // The content of the ToolMessage is the output of the tool, which should be the array of papers
+  const papers = lastToolMessage.content as OpenAlexPaper[];
+
+  if (!papers || papers.length === 0) {
+    console.log("Tool returned no papers. Skipping loadPapers node.");
+    return { papers: [] };
+  }
+
   console.log(
-    "Loaded papers:",
+    "---LOAD PAPERS NODE--- Found papers:",
     papers.map((p) => p.title)
   );
 
-  return { papers, query };
+  return { papers };
 }
 
 // Node: Rank papers
@@ -100,6 +111,11 @@ async function rankPapers(state: AgentState) {
 
 // Node: Gap analysis
 async function gapAnalysis(state: AgentState) {
+  if (!state.rankedPapers || state.rankedPapers.length === 0) {
+    console.log("No ranked papers. Skipping gap analysis.");
+    return { gaps: "No gaps identified" };
+  }
+
   console.log("---PERFORMING GAP ANALYSIS---");
 
   // Prepare paper summaries text for prompt
@@ -131,6 +147,7 @@ async function gapAnalysis(state: AgentState) {
 // Node: Conversational Node
 async function conversationalNode(state: AgentState) {
   console.log("Conversational Node");
+
   const papersText = state.rankedPapers
     .map(
       (p, i) => `Paper ${i + 1}:\nTitle: ${p.title}\nSummary: ${p.abstract}\n`
@@ -139,31 +156,41 @@ async function conversationalNode(state: AgentState) {
 
   const gapsText = state.gaps || "No gaps identified yet.";
 
-  const SYSTEM_TEMPLATE = `
-    You are a research assistant.
-    The user asked: ${state.query}
+  let systemTemplate = `
+        You are a helpful research assistant.
+        The user's query was: "${state.query || "a general question"}"
 
-    Top-ranked papers with summaries:
-    ${papersText}
+        Your role:
+        - Answer the user's questions conversationally.
+        - If no research context is available, respond to the user's original message directly.
+        - If the user wants to refine the search, suggest next steps.
+    `;
 
-    Identified gaps in each paper:
-    ${gapsText}
+  // Only add the research context if papers were found and ranked
+  if (state.rankedPapers && state.rankedPapers.length > 0) {
+    systemTemplate += `
+            Top-ranked papers with summaries:
+            ${papersText}
 
-    Provide a helpful response to the user.
-  `;
+            Identified gaps in each paper:
+            ${gapsText}
 
-  const pastMessages = state.messages;
+            - Use the provided context to support your answers.
+        `;
+  }
+
+  // Filter out messages with tool calls that have no string content
+  const messagesForLLM = state.messages.filter((msg) => {
+    return typeof msg.content === "string" && msg.content.length > 0;
+  });
 
   const response = await llm.invoke([
-    { role: "system", content: SYSTEM_TEMPLATE },
-    ...pastMessages,
+    new SystemMessage(systemTemplate),
+    ...messagesForLLM,
   ]);
 
-  const reply = (response.content as string) || "No response from model";
-  console.log("Agent Reply conversational node", reply);
-
   return {
-    messages: [...state.messages, new AIMessage({ content: reply })],
+    messages: [response],
   };
 }
 
