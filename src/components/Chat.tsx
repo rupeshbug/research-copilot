@@ -1,112 +1,337 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
+import { v4 as uuidv4 } from "uuid";
 
 interface Message {
-  text: string;
-  sender: "user" | "agent";
+  type: "human" | "ai" | "system";
+  content: string;
+}
+
+interface Paper {
+  title: string;
+  authors: string[];
+  published_date?: string;
+  abstract: string;
+  cited_by_count: number;
+  relevance_score?: number;
+}
+
+interface ResearchResult {
+  papers?: Paper[];
+  rankedPapers?: Paper[];
+  gaps?: string;
+  isInterrupted: boolean;
+  interruptData?: {
+    papers_found?: string;
+    message?: string;
+    options?: string[];
+  };
 }
 
 export default function Chat() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([
+    { type: "ai", content: "Hello! How can I help you today?" },
+  ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [threadId] = useState(() => uuidv4());
+  const [waitingForRanking, setWaitingForRanking] = useState(false);
+  const [currentResearch, setCurrentResearch] = useState<ResearchResult | null>(
+    null
+  );
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Scroll to bottom whenever messages change
   useEffect(() => {
-    const firstMessage: Message = {
-      text: "Hello! How can I help you today?",
-      sender: "agent",
-    };
-    setMessages([firstMessage]);
-    console.log("Initial messages:", [firstMessage]);
-  }, []);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    const trimmedInput = input.trim();
+    if (!trimmedInput) return;
 
-    const userMessage: Message = { text: input, sender: "user" };
-    setMessages((prev) => [...prev, userMessage]);
-    console.log("User sent:", userMessage);
-
+    // Add human message immediately
+    setMessages((prev) => [...prev, { type: "human", content: trimmedInput }]);
     setInput("");
     setLoading(true);
 
     try {
-      // Call your Next.js API
       const res = await fetch("/api/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          query: input,
-          threadId: "session_1", // use a fixed thread for now
+          query: trimmedInput,
+          threadId,
+          // If we're waiting for ranking criteria, include it
+          rankingCriteria: waitingForRanking ? trimmedInput : undefined,
         }),
       });
 
       const data = await res.json();
-      console.log("API response:", data);
 
-      const agentResponseText =
-        data?.result?.messages?.[0]?.text ||
-        "Sorry, I couldn't fetch a response.";
+      if (data.error) {
+        setMessages((prev) => [
+          ...prev,
+          { type: "ai", content: `Error: ${data.error}` },
+        ]);
+        setLoading(false);
+        return;
+      }
 
-      const agentMessage: Message = {
-        text: agentResponseText,
-        sender: "agent",
-      };
-      setMessages((prev) => [...prev, agentMessage]);
-      console.log("Agent responded:", agentMessage);
+      // Handle research workflow
+      if (data.result) {
+        const result = data.result as ResearchResult;
+
+        // If interrupted for ranking criteria
+        if (result.isInterrupted && result.interruptData) {
+          setWaitingForRanking(true);
+          setCurrentResearch(result);
+
+          // Show papers found and ask for ranking
+          const papersMessage = `Found ${
+            result.papers?.length || 0
+          } papers:\n\n${result.interruptData.papers_found}\n\n${
+            result.interruptData.message
+          }`;
+          setMessages((prev) => [
+            ...prev,
+            { type: "ai", content: papersMessage },
+          ]);
+
+          // Show ranking options
+          if (result.interruptData.options) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                type: "system",
+                content: `Please choose a ranking criteria: ${result.interruptData!.options!.join(
+                  ", "
+                )}`,
+              },
+            ]);
+          }
+        } else {
+          // Normal response or research completed
+          setWaitingForRanking(false);
+
+          if (result.rankedPapers && result.rankedPapers.length > 0) {
+            // Display research results
+            displayResearchResults(result);
+          } else {
+            // Handle normal conversation messages
+            let aiContent = "";
+
+            if (data.result.messages && Array.isArray(data.result.messages)) {
+              // Extract content from LangChain message format
+              const lastMessage =
+                data.result.messages[data.result.messages.length - 1];
+              if (lastMessage && lastMessage.content) {
+                aiContent =
+                  typeof lastMessage.content === "string"
+                    ? lastMessage.content
+                    : lastMessage.content?.text || "";
+              }
+            } else if (data.result.content) {
+              // Direct content
+              aiContent =
+                typeof data.result.content === "string"
+                  ? data.result.content
+                  : data.result.content?.text || "";
+            }
+
+            if (aiContent.trim()) {
+              setMessages((prev) => [
+                ...prev,
+                { type: "ai", content: aiContent },
+              ]);
+            } else {
+              // Fallback message
+              setMessages((prev) => [
+                ...prev,
+                {
+                  type: "ai",
+                  content:
+                    "I'm here to help! You can ask me about research papers or chat normally.",
+                },
+              ]);
+            }
+          }
+        }
+      } else {
+        // Fallback for unexpected response format
+        console.log("Unexpected response format:", data);
+        setMessages((prev) => [
+          ...prev,
+          {
+            type: "ai",
+            content: "I received your message. How can I help you today?",
+          },
+        ]);
+      }
     } catch (err) {
-      console.error("Error calling API:", err);
-      const errorMessage: Message = {
-        text: "Error fetching response from agent.",
-        sender: "agent",
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      console.error("Chat error:", err);
+      setMessages((prev) => [
+        ...prev,
+        { type: "ai", content: "Error: Failed to get a response." },
+      ]);
     } finally {
       setLoading(false);
     }
   };
 
+  const displayResearchResults = (result: ResearchResult) => {
+    if (!result.rankedPapers) return;
+
+    // Show ranked papers
+    const papersText = result.rankedPapers
+      .map(
+        (paper, index) =>
+          `**${index + 1}. ${paper.title}**\n` +
+          `*Authors:* ${paper.authors.join(", ")}\n` +
+          `*Published:* ${paper.published_date || "N/A"}\n` +
+          `*Citations:* ${paper.cited_by_count}\n` +
+          `*Abstract:* ${paper.abstract.slice(0, 300)}${
+            paper.abstract.length > 300 ? "..." : ""
+          }\n`
+      )
+      .join("\n---\n\n");
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        type: "ai",
+        content: `Here are the top 3 ranked papers:\n\n${papersText}`,
+      },
+    ]);
+
+    // Show gap analysis if available
+    if (result.gaps) {
+      setTimeout(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            type: "ai",
+            content: `**Research Gaps Analysis:**\n\n${result.gaps}`,
+          },
+        ]);
+      }, 1000);
+
+      // Follow up message
+      setTimeout(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            type: "ai",
+            content:
+              "Feel free to ask me more about these papers or request research on a different topic!",
+          },
+        ]);
+      }, 2000);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") handleSend();
+  };
+
+  const handleQuickRanking = (criteria: string) => {
+    setInput(criteria);
+    // Auto-send the ranking criteria
+    setTimeout(() => handleSend(), 100);
+  };
+
   return (
-    <div className="flex flex-col w-full max-w-3xl h-[80vh] bg-white shadow-md rounded-2xl overflow-hidden">
+    <div className="flex flex-col w-full max-w-4xl h-[80vh] bg-white shadow-md rounded-2xl overflow-hidden">
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg, idx) => (
-          <div
-            key={idx}
-            className={`max-w-[75%] px-4 py-2 rounded-2xl ${
-              msg.sender === "agent"
-                ? "mr-auto bg-gray-100 text-gray-900"
-                : "ml-auto bg-gray-900 text-white"
-            }`}
-          >
-            {msg.text}
+        {messages.map((m, i) => (
+          <div key={i}>
+            <div
+              className={`px-4 py-3 rounded-2xl max-w-[85%] whitespace-pre-wrap ${
+                m.type === "human"
+                  ? "ml-auto bg-blue-600 text-white"
+                  : m.type === "system"
+                  ? "mx-auto bg-yellow-100 text-yellow-800 border border-yellow-200 text-center"
+                  : "mr-auto bg-gray-100 text-gray-900"
+              }`}
+            >
+              {m.content}
+            </div>
+
+            {/* Show quick ranking buttons if waiting for ranking */}
+            {m.type === "system" &&
+              waitingForRanking &&
+              i === messages.length - 1 && (
+                <div className="flex gap-2 justify-center mt-2">
+                  {["citations", "recency", "relevance"].map((criteria) => (
+                    <button
+                      key={criteria}
+                      onClick={() => handleQuickRanking(criteria)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition capitalize text-sm"
+                    >
+                      {criteria}
+                    </button>
+                  ))}
+                </div>
+              )}
           </div>
         ))}
 
-        {/* Loading indicator */}
         {loading && (
-          <div className="mr-auto max-w-[75%] px-4 py-2 rounded-2xl bg-gray-100 text-gray-900 animate-pulse">
-            Thinking...
+          <div className="mr-auto bg-gray-100 px-4 py-2 rounded-2xl max-w-[75%] flex items-center gap-2">
+            <div className="animate-pulse">Thinking...</div>
+            <div className="flex space-x-1">
+              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+              <div
+                className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                style={{ animationDelay: "0.1s" }}
+              ></div>
+              <div
+                className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                style={{ animationDelay: "0.2s" }}
+              ></div>
+            </div>
           </div>
         )}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input area */}
-      <div className="p-4 border-t flex items-center gap-2">
-        <input
-          type="text"
-          placeholder="Ask about research papers..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          className="flex-1 rounded-xl text-gray-700 border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-gray-400"
-        />
-        <button
-          onClick={handleSend}
-          className="px-4 py-2 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition"
-        >
-          Send
-        </button>
+      <div className="p-4 border-t bg-gray-50">
+        {waitingForRanking && (
+          <div className="mb-2 text-sm text-gray-600 text-center">
+            💡 You can type your choice or click the buttons above
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder={
+              waitingForRanking
+                ? "Type ranking criteria (citations, recency, or relevance)..."
+                : "Ask about research papers or chat normally..."
+            }
+            className="flex-1 rounded-xl text-gray-700 border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={loading}
+          />
+          <button
+            className={`px-6 py-3 rounded-xl transition font-medium ${
+              loading
+                ? "bg-gray-400 cursor-not-allowed"
+                : waitingForRanking
+                ? "bg-green-600 hover:bg-green-700"
+                : "bg-blue-600 hover:bg-blue-700"
+            } text-white`}
+            onClick={handleSend}
+            disabled={loading || !input.trim()}
+          >
+            {loading ? "..." : waitingForRanking ? "Submit" : "Send"}
+          </button>
+        </div>
       </div>
     </div>
   );
