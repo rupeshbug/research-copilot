@@ -211,7 +211,7 @@ export default function Chat() {
             <div
               className={`px-4 py-3 rounded-2xl max-w-[85%] whitespace-pre-wrap ${
                 m.type === "human"
-                  ? "ml-auto bg-blue-600 text-white"
+                  ? "ml-auto bg-indigo-500 text-white"
                   : m.type === "system"
                   ? "mx-auto bg-yellow-100 text-yellow-800 border border-yellow-200 text-center"
                   : "mr-auto bg-gray-100 text-gray-900"
@@ -229,7 +229,7 @@ export default function Chat() {
                     <button
                       key={criteria}
                       onClick={() => handleQuickRanking(criteria)}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition capitalize text-sm"
+                      className="px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition capitalize text-sm"
                     >
                       {criteria}
                     </button>
@@ -280,12 +280,12 @@ export default function Chat() {
             disabled={loading}
           />
           <button
-            className={`px-6 py-3 rounded-xl transition font-medium ${
+            className={`px-6 py-3 rounded-xl transition font-medium cursor-pointer ${
               loading
                 ? "bg-gray-400 cursor-not-allowed"
                 : waitingForRanking
                 ? "bg-green-600 hover:bg-green-700"
-                : "bg-blue-600 hover:bg-blue-700"
+                : "bg-cyan-500 hover:bg-cyan-600"
             } text-white`}
             onClick={handleSend}
             disabled={loading || !input.trim()}
