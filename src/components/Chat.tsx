@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, ReactNode } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 interface Message {
   type: "human" | "ai" | "system";
   content: string;
+  jsx?: ReactNode; // optional JSX for rich AI messages
 }
 
 interface Paper {
@@ -80,7 +81,7 @@ export default function Chat() {
 
       const result: ResearchResult = data.result;
 
-      // Handle interrupted workflow
+      // Handle interrupted workflow (waiting for ranking criteria)
       if (result.isInterrupted && result.interruptData) {
         setWaitingForRanking(true);
         setCurrentResearch(result);
@@ -92,6 +93,7 @@ export default function Chat() {
         const papersMessage = `Found ${
           result.papers?.length || 0
         } papers:\n\n${papersFound}\n\n${messageText}`;
+
         setMessages((prev) => [
           ...prev,
           { type: "ai", content: papersMessage },
@@ -151,22 +153,46 @@ export default function Chat() {
   const displayResearchResults = (result: ResearchResult) => {
     if (!result.rankedPapers) return;
 
-    const papersText = result.rankedPapers
-      .map(
-        (paper, index) =>
-          `**${index + 1}. ${paper.title}**\n` +
-          `📊 *Citations:* ${paper.cited_by_count} | ` +
-          `📅 *Published:* ${paper.published_date || "N/A"}\n` +
-          `👥 *Authors:* ${paper.authors.slice(0, 4).join(", ")}${
-            paper.authors.length > 4 ? " et al." : ""
-          }\n\n` +
-          `📄 **Abstract:**\n${paper.abstract}\n`
-      )
-      .join("\n" + "─".repeat(80) + "\n\n");
+    const paperElements = result.rankedPapers.map((paper, index) => {
+      const authors =
+        paper.authors.slice(0, 4).join(", ") +
+        (paper.authors.length > 4 ? " et al." : "");
+
+      return (
+        <div key={index} className="mb-4">
+          <div className="font-bold text-gray-700">
+            {index + 1}. {paper.title}
+          </div>
+          <div className="text-sm text-gray-600 mt-1">
+            📊 Citations: {paper.cited_by_count} | 📅 Published:{" "}
+            {paper.published_date || "N/A"}
+          </div>
+          <div className="text-sm text-gray-600 mt-1">
+            👥 Authors: {authors}
+          </div>
+          <div className="mt-2">
+            <span className="font-bold">Abstract: </span>
+            <p className="text-left">{paper.abstract}</p>
+          </div>
+          {index < result.rankedPapers!.length - 1 && (
+            <div className="border-t border-gray-300 my-3 rounded max-w-full" />
+          )}
+        </div>
+      );
+    });
 
     setMessages((prev) => [
       ...prev,
-      { type: "ai", content: `📚 **Top Ranked Papers:**\n\n${papersText}` },
+      {
+        type: "ai",
+        content: "",
+        jsx: (
+          <div className="whitespace-pre-wrap max-w-[85%]">
+            <div className="font-bold mb-2">📚 Top Ranked Papers:</div>
+            {paperElements}
+          </div>
+        ),
+      },
     ]);
 
     if (result.gaps) {
@@ -175,7 +201,13 @@ export default function Chat() {
           ...prev,
           {
             type: "ai",
-            content: `🔍 **Research Gap Analysis:**\n\n${result.gaps}`,
+            content: "",
+            jsx: (
+              <div className="whitespace-pre-wrap max-w-[85%]">
+                <div className="font-bold">🔍 Research Gap Analysis:</div>
+                <div>{result.gaps}</div>
+              </div>
+            ),
           },
         ]);
       }, 1500);
@@ -185,8 +217,13 @@ export default function Chat() {
           ...prev,
           {
             type: "ai",
-            content:
-              "💬 Feel free to ask more about these papers, explore specific aspects, or request research on a different topic!",
+            content: "",
+            jsx: (
+              <div className="whitespace-pre-wrap max-w-[85%]">
+                💬 Feel free to ask more about these papers, explore specific
+                aspects, or request research on a different topic!
+              </div>
+            ),
           },
         ]);
       }, 3000);
@@ -217,7 +254,7 @@ export default function Chat() {
                   : "mr-auto bg-gray-100 text-gray-900"
               }`}
             >
-              {m.content}
+              {"jsx" in m && m.jsx ? m.jsx : m.content}
             </div>
 
             {/* Quick ranking buttons */}
@@ -229,7 +266,7 @@ export default function Chat() {
                     <button
                       key={criteria}
                       onClick={() => handleQuickRanking(criteria)}
-                      className="px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition capitalize text-sm"
+                      className="px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 cursor-pointer transition capitalize text-sm"
                     >
                       {criteria}
                     </button>
