@@ -4,14 +4,20 @@ import { runAgent } from "@/lib/agentRunner";
 
 // Helper function to convert LangChain messages to frontend format
 function convertMessagesToFrontend(messages: BaseMessage[]) {
-  return messages
+  const filteredMessages = messages
     .filter((msg) => {
-      // Filter out empty messages and non-relevant types
+      // Filter out empty messages and only keep AI/system messages
+      // (human messages are already added by frontend)
       const content =
         typeof msg.content === "string"
           ? msg.content
           : JSON.stringify(msg.content);
-      return content && content.trim().length > 0;
+      const messageType = msg.getType();
+      return (
+        content &&
+        content.trim().length > 0 &&
+        (messageType === "ai" || messageType === "system")
+      );
     })
     .map((msg) => {
       const messageType = msg.getType();
@@ -41,6 +47,12 @@ function convertMessagesToFrontend(messages: BaseMessage[]) {
         content: content,
       };
     });
+
+  // Only return the LATEST AI/system message to avoid duplicates
+  // Frontend maintains its own conversation history
+  return filteredMessages.length > 0
+    ? [filteredMessages[filteredMessages.length - 1]]
+    : [];
 }
 
 export async function POST(request: NextRequest) {
