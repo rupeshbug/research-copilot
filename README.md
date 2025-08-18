@@ -2,6 +2,8 @@
 
 An autonomous research assistant that helps you explore scientific literature. Provide a query, and the agent retrieves papers, ranks them based on criteria, generates summaries, and highlights potential research gaps.
 
+**Live Demo:** [research-copilot-five.vercel.app](https://research-copilot-five.vercel.app/)
+
 ## Features
 
 - 🔍 Search academic papers via OpenAlex
@@ -16,13 +18,15 @@ An autonomous research assistant that helps you explore scientific literature. P
 
 ## Tools Used
 
-OpenAlex – Academic paper search
+**OpenAlex** – For searching and retrieving relevant academic papers efficiently. 
 
-LangChain – Orchestration of LLMs
+**LangChain** – Orchestrates the LLMs, manages multi-step reasoning, and integrates with external tools.
 
-LangGraph – Workflow management
+**LangGraph** – Manages workflow states, human-in-the-loop decisions, and interruptions like ranking criteria.
 
-Next.js – Frontend and APIs
+**Next.js** – Provides a responsive frontend and robust API routes for smooth user interactions. 
+
+**Groq / LLaMA 3.3 70B Versatile** – The large language model powering paper summarization, ranking, and research gap analysis.  
 
 ### Notes
 
