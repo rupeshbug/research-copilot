@@ -1,10 +1,36 @@
-import { BaseMessage } from "@langchain/core/messages";
+import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { OpenAlexPaper, llm, OpenAlexTool } from "./utils";
 import { StateGraph, START, END, Annotation } from "@langchain/langgraph";
 import { AIMessage } from "@langchain/core/messages";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { SystemMessage } from "@langchain/core/messages";
 import { interrupt, MemorySaver } from "@langchain/langgraph";
+
+// Helper function to ensure message content is string
+function ensureStringContent(message: BaseMessage): BaseMessage {
+  if (typeof message.content === "string") {
+    return message;
+  }
+
+  // Convert non-string content to string
+  const stringContent =
+    typeof message.content === "object"
+      ? JSON.stringify(message.content)
+      : String(message.content);
+
+  // Create new message with string content
+  const messageType = message.getType();
+  switch (messageType) {
+    case "human":
+      return new HumanMessage({ content: stringContent });
+    case "ai":
+      return new AIMessage({ content: stringContent });
+    case "system":
+      return new SystemMessage({ content: stringContent });
+    default:
+      return new AIMessage({ content: stringContent });
+  }
+}
 
 // Agent State
 const AgentStateAnnotation = Annotation.Root({
@@ -38,7 +64,10 @@ Examples of research queries: "papers on neural networks", "research about machi
 
 For general conversation, greetings, or follow-up questions about already retrieved papers, respond normally without using tools.`);
 
-  const messagesWithSystem = [systemPrompt, ...state.messages];
+  // Ensure all messages have string content
+  const cleanedMessages = state.messages.map(ensureStringContent);
+
+  const messagesWithSystem = [systemPrompt, ...cleanedMessages];
   const response = await llmWithTool.invoke(messagesWithSystem);
   console.log("LLM response from callModel node:", response);
 
@@ -224,13 +253,13 @@ Instructions:
 - If no research context is available, respond to their message directly`;
 
   // Filter messages to only include content that can be processed
-  const messagesForLLM = state.messages.filter((msg) => {
-    return (
-      msg.content &&
-      typeof msg.content === "string" &&
-      msg.content.trim().length > 0
-    );
-  });
+  const messagesForLLM = state.messages
+    .filter((msg) => {
+      const content =
+        typeof msg.content === "string" ? msg.content : String(msg.content);
+      return content && content.trim().length > 0;
+    })
+    .map(ensureStringContent);
 
   try {
     const response = await llm.invoke([
@@ -261,8 +290,8 @@ function shouldUseTools(state: AgentState): string {
     return "tools";
   }
 
-  console.log("Routing to conversation");
-  return "conversationalNode";
+  console.log("Routing to end - no tools needed");
+  return "end";
 }
 
 // Build the graph
@@ -280,7 +309,10 @@ const graph = new StateGraph(AgentStateAnnotation)
   .addEdge(START, "callModel")
 
   // Conditional edge from model: decide tool or conversation
-  .addConditionalEdges("callModel", shouldUseTools)
+  .addConditionalEdges("callModel", shouldUseTools, {
+    tools: "tools",
+    end: END,
+  })
 
   // Research workflow edges
   .addEdge("tools", "loadPapers")
