@@ -6,7 +6,7 @@ An autonomous research assistant that helps you explore scientific literature. P
 
 - 🔍 Search academic papers via OpenAlex
 
-- 📊 Rank results by date, citation count, or semantic similarity
+- 📊 Rank results by date, citation count, or semantic similarity (human-in-the-loop)
 
 - 📝 Summarize papers for quick review
 
