@@ -38,8 +38,6 @@ export async function runAgent({
   rankingCriteria,
   threadId,
 }: RunAgentProps): Promise<AgentResponse> {
-  console.log("Starting agent with threadId:", threadId);
-
   const threadConfig = { configurable: { thread_id: threadId } };
 
   try {
@@ -52,10 +50,6 @@ export async function runAgent({
 
     // Resume from interrupt with ranking criteria
     if (rankingCriteria) {
-      console.log(
-        `Resuming workflow with ranking criteria: ${rankingCriteria}`
-      );
-
       workflowResult = await workflow.invoke(
         new Command({ resume: rankingCriteria }),
         threadConfig
@@ -81,8 +75,6 @@ export async function runAgent({
     const query =
       typeof lastMessage.content === "string" ? lastMessage.content : "";
 
-    console.log(`Processing query: ${query}`);
-
     workflowResult = await workflow.invoke(
       {
         query,
@@ -100,8 +92,6 @@ export async function runAgent({
 
     // Workflow waiting for ranking criteria
     if (currentState.next?.includes("askRankingCriteria")) {
-      console.log("Workflow interrupted - waiting for ranking criteria");
-
       const papers: Paper[] = currentState.values.papers ?? [];
       const interruptData: InterruptData = {
         papers_found: papers.map((p) => p.title).join("\n"),
@@ -121,10 +111,6 @@ export async function runAgent({
 
     // Normal workflow completion
     const finalState = await workflow.getState(threadConfig);
-    console.log("Final workflow state:", {
-      hasMessages: finalState.values.messages?.length > 0,
-      messageCount: finalState.values.messages?.length,
-    });
 
     return {
       messages: finalState.values.messages ?? [],

@@ -54,8 +54,6 @@ const llmWithTool = llm.bindTools(tools);
 
 // Node: Call Model
 async function callModel(state: AgentState): Promise<Partial<AgentState>> {
-  console.log("Call Model Node");
-
   // Add system message for tool decision
   const systemPrompt = new SystemMessage(`You are a helpful research assistant. 
   
@@ -69,22 +67,18 @@ For general conversation, greetings, or follow-up questions about already retrie
 
   const messagesWithSystem = [systemPrompt, ...cleanedMessages];
   const response = await llmWithTool.invoke(messagesWithSystem);
-  console.log("LLM response from callModel node:", response);
 
   return { messages: [response] };
 }
 
 // Node: Load papers
 async function loadPapers(state: AgentState): Promise<Partial<AgentState>> {
-  console.log("---LOAD PAPERS NODE---");
-
   // Find the last tool message in the message history
   const lastToolMessage = [...state.messages]
     .reverse()
     .find((m) => m.getType() === "tool");
 
   if (!lastToolMessage) {
-    console.log("No tool message found in state. Skipping loadPapers node.");
     return { papers: [] };
   }
 
@@ -92,14 +86,8 @@ async function loadPapers(state: AgentState): Promise<Partial<AgentState>> {
   const papers = lastToolMessage.content as OpenAlexPaper[];
 
   if (!papers || papers.length === 0) {
-    console.log("Tool returned no papers. Skipping loadPapers node.");
     return { papers: [] };
   }
-
-  console.log(
-    "Found papers:",
-    papers.map((p) => p.title)
-  );
 
   // Extract query from the last human message for context
   const lastHumanMessage = [...state.messages]
@@ -115,8 +103,6 @@ async function loadPapers(state: AgentState): Promise<Partial<AgentState>> {
 async function askRankingCriteria(
   state: AgentState
 ): Promise<Partial<AgentState>> {
-  console.log("---INTERRUPT: ASK RANKING CRITERIA---");
-
   const papersPreview = state.papers
     .map((p, i) => `${i + 1}. ${p.title}`)
     .join("\n");
@@ -132,10 +118,7 @@ async function askRankingCriteria(
 
 // Node: Rank papers
 async function rankPapers(state: AgentState): Promise<Partial<AgentState>> {
-  console.log("---RANKING PAPERS NODE---");
-
   if (!state.papers || state.papers.length === 0) {
-    console.log("No papers to rank");
     return { rankedPapers: [] };
   }
 
@@ -143,11 +126,8 @@ async function rankPapers(state: AgentState): Promise<Partial<AgentState>> {
   const validCriteria = ["citations", "recency", "relevance"];
 
   if (!validCriteria.includes(criteria)) {
-    console.log("Invalid criteria. Defaulting to 'citations'.");
     criteria = "citations";
   }
-
-  console.log(`Ranking by: ${criteria}`);
 
   const rankedPapers = [...state.papers].sort((a, b) => {
     if (criteria === "citations") {
@@ -165,20 +145,13 @@ async function rankPapers(state: AgentState): Promise<Partial<AgentState>> {
   });
 
   const topPapers = rankedPapers.slice(0, 3);
-  console.log(
-    "Top 3 ranked papers:",
-    topPapers.map((p) => p.title)
-  );
 
   return { rankedPapers: topPapers };
 }
 
 // Node: Gap analysis
 async function gapAnalysis(state: AgentState): Promise<Partial<AgentState>> {
-  console.log("---PERFORMING GAP ANALYSIS---");
-
   if (!state.rankedPapers || state.rankedPapers.length === 0) {
-    console.log("No ranked papers. Skipping gap analysis.");
     return { gaps: "No gaps identified - no papers were ranked." };
   }
 
@@ -209,7 +182,6 @@ Paper 3: [Analysis]`;
   try {
     const response = await llm.invoke(prompt);
     const gaps = (response.content as string) || "No gaps identified";
-    console.log("Gap analysis completed");
     return { gaps };
   } catch (error) {
     console.error("Error in gap analysis:", error);
@@ -221,8 +193,6 @@ Paper 3: [Analysis]`;
 async function conversationalNode(
   state: AgentState
 ): Promise<Partial<AgentState>> {
-  console.log("---CONVERSATIONAL NODE---");
-
   // Build context based on available research data
   let contextInfo = "";
 
@@ -286,11 +256,8 @@ function shouldUseTools(state: AgentState): string {
   const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
 
   if (lastMessage?.tool_calls && lastMessage.tool_calls.length > 0) {
-    console.log("Routing to tools");
     return "tools";
   }
-
-  console.log("Routing to end - no tools needed");
   return "end";
 }
 

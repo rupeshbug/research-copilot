@@ -53,7 +53,6 @@ export async function openAlexSearch(
     const data: OpenAlexAPIResponse = await res.json();
 
     if (!data.results || data.results.length === 0) {
-      console.log("No papers found for query:", query);
       return [];
     }
 
@@ -87,7 +86,7 @@ export async function openAlexSearch(
         // Clean up common issues with reconstructed text
         abstract = abstract
           .replace(/\s+/g, " ") // Replace multiple spaces with single space
-          .replace(/\s+([.,;:!?])/g, "$1") // Remove spaces before punctuation
+          .replace(/\s+([.,;:!?])/g, "$1")
           .trim();
       }
 
@@ -123,11 +122,9 @@ export const OpenAlexTool = tool(
   async (input: unknown): Promise<OpenAlexPaper[]> => {
     const parsed = OpenAlexToolSchema.parse(input);
     const { query } = parsed;
-    console.log(`Searching OpenAlex for: ${query}`);
 
     const papers = await openAlexSearch(query, 5);
 
-    console.log(`Found ${papers.length} papers`);
     return papers;
   },
   {

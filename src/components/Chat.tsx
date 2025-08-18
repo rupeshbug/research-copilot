@@ -257,7 +257,7 @@ export default function Chat() {
               {"jsx" in m && m.jsx ? m.jsx : m.content}
             </div>
 
-            {/* Quick ranking buttons */}
+            {/* ranking buttons */}
             {m.type === "system" &&
               waitingForRanking &&
               i === messages.length - 1 && (
