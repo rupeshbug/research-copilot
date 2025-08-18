@@ -2,22 +2,33 @@ import { workflow } from "./agent";
 import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { Command } from "@langchain/langgraph";
 
+interface Paper {
+  title: string;
+  authors: string[];
+  published_date?: string;
+  abstract: string;
+  cited_by_count: number;
+  relevance_score?: number;
+}
+
 interface RunAgentProps {
   messages?: BaseMessage[];
   rankingCriteria?: string;
   threadId: string;
 }
 
+interface InterruptData {
+  papers_found?: string;
+  message?: string;
+  options?: string[];
+}
+
 interface AgentResponse {
   messages: BaseMessage[];
   isInterrupted: boolean;
-  interruptData?: {
-    papers_found?: string;
-    message?: string;
-    options?: string[];
-  };
-  papers?: any[];
-  rankedPapers?: any[];
+  interruptData?: InterruptData;
+  papers: Paper[];
+  rankedPapers: Paper[];
   gaps?: string;
   error?: string;
 }
@@ -32,9 +43,14 @@ export async function runAgent({
   const threadConfig = { configurable: { thread_id: threadId } };
 
   try {
-    let workflowResult;
+    let workflowResult: {
+      messages?: BaseMessage[];
+      papers?: Paper[];
+      rankedPapers?: Paper[];
+      gaps?: string;
+    } = {};
 
-    // If we have ranking criteria, we're resuming from an interrupt
+    // Resume from interrupt with ranking criteria
     if (rankingCriteria) {
       console.log(
         `Resuming workflow with ranking criteria: ${rankingCriteria}`
@@ -46,22 +62,21 @@ export async function runAgent({
       );
 
       return {
-        messages: workflowResult.messages || [],
+        messages: workflowResult.messages ?? [],
         isInterrupted: false,
-        papers: workflowResult.papers,
-        rankedPapers: workflowResult.rankedPapers,
+        papers: workflowResult.papers ?? [],
+        rankedPapers: workflowResult.rankedPapers ?? [],
         gaps: workflowResult.gaps,
       };
     }
 
-    // Initial run or continuation
+    // Initial run: if no messages, start with greeting
     if (messages.length === 0) {
       messages = [
         new HumanMessage({ content: "Hello! How can I help you today?" }),
       ];
     }
 
-    // Extract the user's query from the last message
     const lastMessage = messages[messages.length - 1];
     const query =
       typeof lastMessage.content === "string" ? lastMessage.content : "";
@@ -80,29 +95,31 @@ export async function runAgent({
       threadConfig
     );
 
-    // Check if workflow was interrupted (waiting for ranking criteria)
+    // Get current workflow state to check for interruption
     const currentState = await workflow.getState(threadConfig);
 
-    if (currentState.next && currentState.next.includes("askRankingCriteria")) {
+    // Workflow waiting for ranking criteria
+    if (currentState.next?.includes("askRankingCriteria")) {
       console.log("Workflow interrupted - waiting for ranking criteria");
 
+      const papers: Paper[] = currentState.values.papers ?? [];
+      const interruptData: InterruptData = {
+        papers_found: papers.map((p) => p.title).join("\n"),
+        message: `Found ${papers.length} papers. How would you like to rank them?`,
+        options: ["citations", "recency", "relevance"],
+      };
+
       return {
-        messages: currentState.values.messages || [],
+        messages: currentState.values.messages ?? [],
         isInterrupted: true,
-        interruptData: {
-          papers_found:
-            currentState.values.papers?.map((p: any) => p.title).join("\n") ||
-            "",
-          message: `Found ${
-            currentState.values.papers?.length || 0
-          } papers. How would you like to rank them?`,
-          options: ["citations", "recency", "relevance"],
-        },
-        papers: currentState.values.papers,
+        interruptData,
+        papers,
+        rankedPapers: currentState.values.rankedPapers ?? [],
+        gaps: currentState.values.gaps,
       };
     }
 
-    // Normal completion - get the final state
+    // Normal workflow completion
     const finalState = await workflow.getState(threadConfig);
     console.log("Final workflow state:", {
       hasMessages: finalState.values.messages?.length > 0,
@@ -110,34 +127,34 @@ export async function runAgent({
     });
 
     return {
-      messages: finalState.values.messages || [],
+      messages: finalState.values.messages ?? [],
       isInterrupted: false,
-      papers: finalState.values.papers,
-      rankedPapers: finalState.values.rankedPapers,
+      papers: finalState.values.papers ?? [],
+      rankedPapers: finalState.values.rankedPapers ?? [],
       gaps: finalState.values.gaps,
     };
   } catch (error) {
     console.error("Error in workflow:", error);
-
     return {
       messages: [],
       isInterrupted: false,
+      papers: [],
+      rankedPapers: [],
       error: error instanceof Error ? error.message : "Unknown error occurred",
     };
   }
 }
 
-// Helper function to check if a thread has an active interrupt
+// Helper to check if a thread has active interrupt
 export async function checkInterruptStatus(threadId: string) {
   const threadConfig = { configurable: { thread_id: threadId } };
 
   try {
     const currentState = await workflow.getState(threadConfig);
     return {
-      isInterrupted:
-        currentState.next && currentState.next.includes("askRankingCriteria"),
-      nextNodes: currentState.next,
-      papers: currentState.values.papers,
+      isInterrupted: currentState.next?.includes("askRankingCriteria") ?? false,
+      nextNodes: currentState.next ?? [],
+      papers: currentState.values.papers ?? [],
     };
   } catch (error) {
     console.error("Error checking interrupt status:", error);

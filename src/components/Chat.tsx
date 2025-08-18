@@ -18,6 +18,7 @@ interface Paper {
 }
 
 interface ResearchResult {
+  messages?: Message[];
   papers?: Paper[];
   rankedPapers?: Paper[];
   gaps?: string;
@@ -51,7 +52,6 @@ export default function Chat() {
     const trimmedInput = input.trim();
     if (!trimmedInput) return;
 
-    // Add human message immediately
     setMessages((prev) => [...prev, { type: "human", content: trimmedInput }]);
     setInput("");
     setLoading(true);
@@ -63,7 +63,6 @@ export default function Chat() {
         body: JSON.stringify({
           query: trimmedInput,
           threadId,
-          // If we're waiting for ranking criteria, include it
           rankingCriteria: waitingForRanking ? trimmedInput : undefined,
         }),
       });
@@ -79,95 +78,64 @@ export default function Chat() {
         return;
       }
 
-      // Handle research workflow
-      if (data.result) {
-        const result = data.result as ResearchResult;
+      const result: ResearchResult = data.result;
 
-        // If interrupted for ranking criteria
-        if (result.isInterrupted && result.interruptData) {
-          setWaitingForRanking(true);
-          setCurrentResearch(result);
+      // Handle interrupted workflow
+      if (result.isInterrupted && result.interruptData) {
+        setWaitingForRanking(true);
+        setCurrentResearch(result);
 
-          // Show papers found and ask for ranking
-          const papersMessage = `Found ${
-            result.papers?.length || 0
-          } papers:\n\n${result.interruptData.papers_found}\n\n${
-            result.interruptData.message
-          }`;
-          setMessages((prev) => [
-            ...prev,
-            { type: "ai", content: papersMessage },
-          ]);
+        const papersFound = result.interruptData.papers_found || "";
+        const messageText = result.interruptData.message || "";
+        const options = result.interruptData.options || [];
 
-          // Show ranking options
-          if (result.interruptData.options) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                type: "system",
-                content: `Please choose a ranking criteria: ${result.interruptData!.options!.join(
-                  ", "
-                )}`,
-              },
-            ]);
-          }
-        } else {
-          // Normal response or research completed
-          setWaitingForRanking(false);
-
-          if (result.rankedPapers && result.rankedPapers.length > 0) {
-            // Display research results
-            displayResearchResults(result);
-          } else {
-            // Handle normal conversation messages
-            let aiContent = "";
-
-            if (data.result.messages && Array.isArray(data.result.messages)) {
-              // Extract content from LangChain message format
-              const lastMessage =
-                data.result.messages[data.result.messages.length - 1];
-              if (lastMessage && lastMessage.content) {
-                aiContent =
-                  typeof lastMessage.content === "string"
-                    ? lastMessage.content
-                    : lastMessage.content?.text || "";
-              }
-            } else if (data.result.content) {
-              // Direct content
-              aiContent =
-                typeof data.result.content === "string"
-                  ? data.result.content
-                  : data.result.content?.text || "";
-            }
-
-            if (aiContent.trim()) {
-              setMessages((prev) => [
-                ...prev,
-                { type: "ai", content: aiContent },
-              ]);
-            } else {
-              // Fallback message
-              setMessages((prev) => [
-                ...prev,
-                {
-                  type: "ai",
-                  content:
-                    "I'm here to help! You can ask me about research papers or chat normally.",
-                },
-              ]);
-            }
-          }
-        }
-      } else {
-        // Fallback for unexpected response format
-        console.log("Unexpected response format:", data);
+        const papersMessage = `Found ${
+          result.papers?.length || 0
+        } papers:\n\n${papersFound}\n\n${messageText}`;
         setMessages((prev) => [
           ...prev,
-          {
-            type: "ai",
-            content: "I received your message. How can I help you today?",
-          },
+          { type: "ai", content: papersMessage },
         ]);
+
+        if (options.length > 0) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              type: "system",
+              content: `Please choose a ranking criteria: ${options.join(
+                ", "
+              )}`,
+            },
+          ]);
+        }
+      } else {
+        setWaitingForRanking(false);
+
+        // Append any messages from the agent
+        if (result.messages && result.messages.length > 0) {
+          const aiMessages = result.messages
+            .filter((m) => m.content.trim() !== "")
+            .map((m) => ({ type: "ai" as const, content: m.content }));
+
+          setMessages((prev) => [...prev, ...aiMessages]);
+        }
+
+        // Display research results if available
+        if (result.rankedPapers && result.rankedPapers.length > 0) {
+          displayResearchResults(result);
+        } else if (
+          (!result.messages || result.messages.length === 0) &&
+          !result.rankedPapers
+        ) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              type: "ai",
+              content:
+                "I'm here to help! You can ask me about research papers or chat normally.",
+            },
+          ]);
+        }
       }
     } catch (err) {
       console.error("Chat error:", err);
@@ -183,51 +151,45 @@ export default function Chat() {
   const displayResearchResults = (result: ResearchResult) => {
     if (!result.rankedPapers) return;
 
-    // Show ranked papers
     const papersText = result.rankedPapers
       .map(
         (paper, index) =>
           `**${index + 1}. ${paper.title}**\n` +
-          `*Authors:* ${paper.authors.join(", ")}\n` +
-          `*Published:* ${paper.published_date || "N/A"}\n` +
-          `*Citations:* ${paper.cited_by_count}\n` +
-          `*Abstract:* ${paper.abstract.slice(0, 300)}${
-            paper.abstract.length > 300 ? "..." : ""
-          }\n`
+          `📊 *Citations:* ${paper.cited_by_count} | ` +
+          `📅 *Published:* ${paper.published_date || "N/A"}\n` +
+          `👥 *Authors:* ${paper.authors.slice(0, 4).join(", ")}${
+            paper.authors.length > 4 ? " et al." : ""
+          }\n\n` +
+          `📄 **Abstract:**\n${paper.abstract}\n`
       )
-      .join("\n---\n\n");
+      .join("\n" + "─".repeat(80) + "\n\n");
 
     setMessages((prev) => [
       ...prev,
-      {
-        type: "ai",
-        content: `Here are the top 3 ranked papers:\n\n${papersText}`,
-      },
+      { type: "ai", content: `📚 **Top Ranked Papers:**\n\n${papersText}` },
     ]);
 
-    // Show gap analysis if available
     if (result.gaps) {
       setTimeout(() => {
         setMessages((prev) => [
           ...prev,
           {
             type: "ai",
-            content: `**Research Gaps Analysis:**\n\n${result.gaps}`,
+            content: `🔍 **Research Gap Analysis:**\n\n${result.gaps}`,
           },
         ]);
-      }, 1000);
+      }, 1500);
 
-      // Follow up message
       setTimeout(() => {
         setMessages((prev) => [
           ...prev,
           {
             type: "ai",
             content:
-              "Feel free to ask me more about these papers or request research on a different topic!",
+              "💬 Feel free to ask more about these papers, explore specific aspects, or request research on a different topic!",
           },
         ]);
-      }, 2000);
+      }, 3000);
     }
   };
 
@@ -237,7 +199,6 @@ export default function Chat() {
 
   const handleQuickRanking = (criteria: string) => {
     setInput(criteria);
-    // Auto-send the ranking criteria
     setTimeout(() => handleSend(), 100);
   };
 
@@ -259,12 +220,12 @@ export default function Chat() {
               {m.content}
             </div>
 
-            {/* Show quick ranking buttons if waiting for ranking */}
+            {/* Quick ranking buttons */}
             {m.type === "system" &&
               waitingForRanking &&
               i === messages.length - 1 && (
                 <div className="flex gap-2 justify-center mt-2">
-                  {["citations", "recency", "relevance"].map((criteria) => (
+                  {currentResearch?.interruptData?.options?.map((criteria) => (
                     <button
                       key={criteria}
                       onClick={() => handleQuickRanking(criteria)}

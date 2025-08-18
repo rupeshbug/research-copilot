@@ -1,6 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
-import { HumanMessage } from "@langchain/core/messages";
+import { HumanMessage, BaseMessage } from "@langchain/core/messages";
 import { runAgent } from "@/lib/agentRunner";
+
+// Helper function to convert LangChain messages to frontend format
+function convertMessagesToFrontend(messages: BaseMessage[]) {
+  return messages
+    .filter((msg) => {
+      // Filter out empty messages and non-relevant types
+      const content =
+        typeof msg.content === "string"
+          ? msg.content
+          : JSON.stringify(msg.content);
+      return content && content.trim().length > 0;
+    })
+    .map((msg) => {
+      const messageType = msg.getType();
+      let frontendType: "human" | "ai" | "system";
+
+      switch (messageType) {
+        case "human":
+          frontendType = "human";
+          break;
+        case "ai":
+          frontendType = "ai";
+          break;
+        case "system":
+          frontendType = "system";
+          break;
+        default:
+          frontendType = "ai"; // Default fallback
+      }
+
+      const content =
+        typeof msg.content === "string"
+          ? msg.content
+          : JSON.stringify(msg.content);
+
+      return {
+        type: frontendType,
+        content: content,
+      };
+    });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,7 +97,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: 500 });
     }
 
-    return NextResponse.json({ result });
+    // Convert LangChain messages to frontend format
+    const formattedResult = {
+      ...result,
+      messages: result.messages
+        ? convertMessagesToFrontend(result.messages)
+        : [],
+    };
+
+    console.log("API: Formatted messages for frontend:", {
+      messageCount: formattedResult.messages.length,
+      messages: formattedResult.messages,
+    });
+
+    return NextResponse.json({ result: formattedResult });
   } catch (error) {
     console.error("API Error:", error);
 
