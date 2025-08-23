@@ -33,7 +33,10 @@ interface ResearchResult {
 
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([
-    { type: "ai", content: "Hello! How can I help you today?" },
+    {
+      type: "ai",
+      content: "Hello! Got a topic in mind? I’ll dig up the best papers.",
+    },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
