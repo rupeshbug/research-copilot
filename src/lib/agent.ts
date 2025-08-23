@@ -55,12 +55,12 @@ const llmWithTool = llm.bindTools(tools);
 // Node: Call Model
 async function callModel(state: AgentState): Promise<Partial<AgentState>> {
   // Add system message for tool decision
-  const systemPrompt = new SystemMessage(`You are a helpful research assistant. 
-  
-If the user asks about research papers, academic topics, or wants to find scientific literature, use the openalex_search tool.
-Examples of research queries: "papers on neural networks", "research about machine learning", "studies on climate change"
-
-For general conversation, greetings, or follow-up questions about already retrieved papers, respond normally without using tools.`);
+  const systemPrompt = new SystemMessage(`You are a Research Agent. 
+    When the user asks about research, papers, studies, or academic topics, 
+    you MUST call the "openalex_search" tool with their query. 
+    Do not answer directly without searching. 
+    If the query is not research-related, then you may respond normally. 
+    Always prefer tool use first for anything academic. `);
 
   // Ensure all messages have string content
   const cleanedMessages = state.messages.map(ensureStringContent);
