@@ -30,4 +30,4 @@ An autonomous research assistant that helps you explore scientific literature. P
 
 ### Notes
 
-To reduce token and API usage, the agent processes limited paper content (titles, abstracts, metadata) while still providing useful rankings and gap analysis. This design can easily be extended for deeper analysis using full papers.
+To reduce token and API usage, the agent processes limited paper content (titles, abstracts, metadata) while still providing useful rankings and gap analysis. This design can easily be extended for deeper and more accurate analysis using full papers.
