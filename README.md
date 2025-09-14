@@ -24,7 +24,7 @@ An autonomous research assistant that helps you explore scientific literature. P
 
 **LangGraph** – Manages workflow states, human-in-the-loop decisions, and interruptions like ranking criteria.
 
-**Next.js** – Provides a responsive frontend and robust API routes for smooth user interactions. 
+**Next.js** – Provides a responsive frontend and API routes for smooth user interactions. 
 
 **Groq / LLaMA 3.3 70B Versatile** – The large language model powering paper summarization, ranking, and research gap analysis.  
 
